@@ -1,0 +1,2 @@
+# ConsomeDePollo
+Proyecto de fundamentos

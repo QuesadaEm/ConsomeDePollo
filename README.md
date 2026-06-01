@@ -1,0 +1,220 @@
+# Proyecto Ahorcado - Ensamblador 8086 (EMU8086)
+
+## 1. Introduccion
+
+Juego del Ahorcado en ensamblador 8086 para EMU8086, con dos modalidades:
+
+- **Maquina vs Jugador**: el programa selecciona una palabra aleatoria desde archivos `.txt` clasificados por dificultad (facil, medio, dificil).
+- **Jugador vs Jugador**: un jugador ingresa una palabra secreta con caracteres ocultos (`*`) y el otro intenta adivinarla en maximo 6 intentos. Los roles se intercambian y se comparan puntajes.
+
+El codigo esta dividido en dos bloques:
+
+| Bloque | Funcion |
+|---|---|
+| Logica del juego | Comparar letras, validar repetidas, detectar victoria/derrota, puntuacion, turnos |
+| Archivos + Aleatoriedad + PvP | Leer palabras de archivos `.txt`, seleccion aleatoria, entrada oculta con `*` |
+
+---
+
+## 2. Archivos del proyecto
+
+| Archivo | Descripcion |
+|---|---|
+| `logica_archivos_datos.asm` | Codigo fuente completo. Abrir en EMU8086, ensamblar (F7), ejecutar (F5). |
+| `facil.txt` | 20 palabras de 4-5 letras, una por linea |
+| `medio.txt` | 15 palabras de 6-8 letras, una por linea |
+| `dificil.txt` | 12 palabras de 9+ letras, una por linea |
+
+Los `.txt` deben estar en `C:\emu8086\MyBuild\`. Si un archivo no se encuentra, el programa usa `'PRUEBA'` como respaldo.
+
+---
+
+## 3. Variables globales
+
+### Datos del juego
+```
+PALABRA       DB 20 DUP(0)      ; Palabra secreta actual
+LONG_PALABRA  DB 0              ; Cantidad de letras
+ESTADO        DB 20 DUP('_')    ; Lo que ve el jugador (_ _ _ _)
+ERRORES       DB 0              ; Errores acumulados (0-6)
+LETRA_ACTUAL  DB 0              ; Ultima letra ingresada
+USADAS        DB 26 DUP(0)      ; Letras ya usadas (A=0, B=1, ..., Z=25)
+TURNO         DB 1              ; 1=Jugador 1, 2=Jugador 2
+MODALIDAD     DB 1              ; 1=Maquina vs J, 2=PvP
+```
+
+### Puntajes
+```
+TABLA_PUNTAJES DB 100, 100, 85, 70, 50, 30, 10   ; Indexada por ERRORES
+PUNTAJE_ACTUAL DB 0                                ; Puntaje del turno
+PUNTAJE_J1     DW 0                                ; Acumulado Jugador 1
+PUNTAJE_J2     DW 0                                ; Acumulado Jugador 2
+MAX_ERRORES    EQU 6                               ; Maximo de intentos
+```
+
+### Archivos y aleatoriedad
+```
+DIFICULTAD    DB 1              ; 1=facil, 2=medio, 3=dificil
+BUFFER_ARCH   DB 2000 DUP(0)    ; Buffer de lectura del archivo
+BYTES_LEIDOS  DW 0              ; Bytes leidos
+CONT_PALABRAS DB 0              ; Total de palabras en el buffer
+INDICE_SEL    DB 0              ; Indice de palabra elegida al azar
+FILE_HANDLE   DW 0              ; Handle del archivo abierto
+
+ARCH_FACIL    DB 'facil.txt', 0
+ARCH_MEDIO    DB 'medio.txt', 0
+ARCH_DIFICIL  DB 'dificil.txt', 0
+PAL_DEFAULT   DB 'PRUEBA'       ; Palabra de respaldo
+LEN_DEFAULT   DB 6
+```
+
+---
+
+## 4. Modulos de logica del juego
+
+### COMPARAR_LETRA
+Busca `LETRA_ACTUAL` en `PALABRA`. Por cada coincidencia revela esa posicion en `ESTADO`. Si no encuentra ninguna, incrementa `ERRORES`. Retorna cantidad de aciertos en AL.
+
+Ejemplo: `PALABRA = "CASA"`, `ESTADO = "____"`, letra = `'A'` → resultado: `ESTADO = "_A_A"`, AL = 2.
+
+### VALIDAR_REPETIDA
+Verifica en `USADAS` si la letra ya fue ingresada. Si es nueva, la marca. Si es repetida, retorna CF=1. Debe llamarse siempre ANTES de `COMPARAR_LETRA`. El indice se obtiene con `LETRA_ACTUAL - 'A'` (A=0, B=1, ..., Z=25).
+
+### DETECTAR_VICTORIA
+Recorre `ESTADO` buscando `'_'`. Si no encuentra ninguno, el jugador gano (CF=1). Debe llamarse ANTES que `DETECTAR_DERROTA` para que adivinar en el ultimo intento cuente como victoria.
+
+### DETECTAR_DERROTA
+Compara `ERRORES >= MAX_ERRORES` (6). Si se alcanzo el maximo, CF=1.
+
+### CALCULAR_PUNTAJE
+Busca en `TABLA_PUNTAJES` usando `ERRORES` como indice y actualiza `PUNTAJE_ACTUAL`. Se llama en cada iteracion para mostrar el puntaje potencial en tiempo real.
+
+### PUNTAJE_DERROTA y ACUMULAR_PUNTAJE
+`PUNTAJE_DERROTA` pone `PUNTAJE_ACTUAL = 0` (cuando se pierde o rinde). `ACUMULAR_PUNTAJE` suma `PUNTAJE_ACTUAL` a `PUNTAJE_J1` o `PUNTAJE_J2` segun `TURNO`. Llamar una sola vez por ronda.
+
+### CAMBIO_TURNO
+Alterna `TURNO` entre 1 y 2. Resetea `ERRORES=0`, `PUNTAJE_ACTUAL=0` y limpia `USADAS`. Solo se usa en modo PvP.
+
+### IMPRIMIR_TURNO
+Muestra "Turno del Jugador 1" o "Turno del Jugador 2" segun `TURNO`.
+
+### Auxiliares
+`REINICIAR_ESTADO`: llena `ESTADO` con `'_'` segun `LONG_PALABRA`. Usa `REP STOSB`.
+
+`REINICIAR_USADAS`: pone 26 ceros en `USADAS`. Usa `REP STOSB`.
+
+`IMPRIMIR_NUMERO`: convierte AX a decimal dividiendo entre 10 y apilando digitos (DOS no imprime numeros nativamente).
+
+`MOSTRAR_ESTADO_PRUEBA`: muestra `ESTADO`, `ERRORES` y `PUNTAJE_ACTUAL` en pantalla.
+
+---
+
+## 5. Modulos de archivos y PvP
+
+### CARGAR_PALABRA (punto de entrada)
+Segun `MODALIDAD`:
+- **Maquina (1)**: delega en `CARGAR_PALABRA_ARCHIVO`
+- **PvP (2)**: delega en `LEER_PALABRA_OCULTA`
+
+Si no se carga ninguna palabra (archivo no encontrado, usuario presiono Enter sin escribir), carga `'PRUEBA'` como respaldo para evitar que `LONG_PALABRA = 0`, lo cual causaria loops infinitos. Al finalizar resetea `ESTADO`, `ERRORES` y `USADAS`.
+
+### CARGAR_PALABRA_ARCHIVO
+Flujo: `ABRIR_ARCHIVO` → `CONTAR_PALABRAS` → `GENERAR_ALEATORIO` → `EXTRAER_PALABRA`. Si algo falla, muestra error y carga `'PRUEBA'`.
+
+### ABRIR_ARCHIVO
+Segun `DIFICULTAD` (1, 2, 3) selecciona `facil.txt`, `medio.txt` o `dificil.txt`. Usa tres interrupciones DOS: `AH=3Dh` (abrir), `AH=3Fh` (leer hasta 2000 bytes a `BUFFER_ARCH`), `AH=3Eh` (cerrar). Retorna CF=1 si el archivo no existe o hay error de lectura.
+
+### CONTAR_PALABRAS
+Recorre `BUFFER_ARCH` byte a byte. Las palabras estan separadas por `CR` (0Dh) y `LF` (0Ah). Cada grupo de caracteres que no es CR ni LF cuenta como una palabra. Resultado en `CONT_PALABRAS`.
+
+### EXTRAER_PALABRA
+Similar a `CONTAR_PALABRAS` pero cuando llega al indice `INDICE_SEL` copia esa palabra a `PALABRA` y guarda su longitud en `LONG_PALABRA`. Maximo 20 caracteres.
+
+### GENERAR_ALEATORIO
+Usa `INT 21h/AH=2Ch` para obtener centesimas de segundo (0-99). Calcula `INDICE_SEL = centesimas % CONT_PALABRAS` usando `DIV`. Protegido contra division por cero.
+
+### LEER_PALABRA_OCULTA
+Entrada de palabra secreta para modo PvP:
+- Segun `TURNO`, pide la palabra al jugador que NO esta adivinando
+- Lee con `INT 21h/AH=08h` (sin eco), muestra `*` con `INT 21h/AH=02h`
+- Soporta Backspace con secuencia `BS + espacio + BS`
+- Convierte minusculas a mayusculas (`-20h`)
+- Filtra: solo acepta A-Z, maximo 20 letras
+- Al terminar muestra "PASE EL TECLADO AL OTRO JUGADOR", espera ENTER y limpia pantalla
+
+---
+
+## 6. Flujo del programa
+
+```
+INICIO
+  ├─ Seleccionar modo (1=Maquina, 2=PvP)
+  ├─ Si Maquina: seleccionar dificultad
+  ├─ Inicializar TURNO=1, puntajes en 0
+  │
+  ▼
+RONDA ←──────────────────────────────────────────┐
+  ├─ IMPRIMIR_TURNO                               │
+  ├─ CARGAR_PALABRA                               │
+  │   ├─ Maquina: leer .txt → aleatoria           │
+  │   └─ PvP: entrada oculta con *                │
+  │   └─ Resetea ESTADO, ERRORES, USADAS          │
+  ▼                                               │
+LOOP_TURNO ←──────────────────────────────────┐   │
+  ├─ CALCULAR_PUNTAJE                          │   │
+  ├─ MOSTRAR_ESTADO_PRUEBA                     │   │
+  ├─ Leer letra ('0' = rendirse)               │   │
+  ├─ VALIDAR_REPETIDA → repetida? volver ──────┘   │
+  ├─ COMPARAR_LETRA                                │
+  ├─ DETECTAR_VICTORIA → gano?                     │
+  ├─ DETECTAR_DERROTA → perdio?                    │
+  └─ Volver ───────────────────────────────────────┘
+  │
+  ▼
+FIN_RONDA
+  ├─ TURNO=2 → FIN_PARTIDA (estadisticas)
+  └─ TURNO=1 → CAMBIO_TURNO → volver a RONDA ─────┘
+```
+
+---
+
+## 7. Interrupciones utilizadas
+
+| Interrupcion | Proposito | Donde se usa |
+|---|---|---|
+| `INT 10h, AH=00h, AL=03h` | Modo texto 80x25 (limpia pantalla) | `LIMPIAR_PANTALLA` |
+| `INT 21h, AH=01h` | Leer tecla con eco | `LEER_TECLA` |
+| `INT 21h, AH=02h` | Imprimir caracter en DL | `IMPRIMIR_CARACTER`, `LEER_PALABRA_OCULTA` |
+| `INT 21h, AH=08h` | Leer tecla sin eco | `LEER_PALABRA_OCULTA` |
+| `INT 21h, AH=09h` | Imprimir cadena terminada en `$` | `IMPRIMIR_CADENA` |
+| `INT 21h, AH=2Ch` | Obtener hora del sistema | `GENERAR_ALEATORIO` |
+| `INT 21h, AH=3Dh` | Abrir archivo (solo lectura) | `ABRIR_ARCHIVO` |
+| `INT 21h, AH=3Fh` | Leer archivo | `ABRIR_ARCHIVO` |
+| `INT 21h, AH=3Eh` | Cerrar archivo | `ABRIR_ARCHIVO` |
+| `INT 21h, AH=4Ch` | Terminar programa | `FIN_PARTIDA` |
+
+---
+
+## 8. Formato de los archivos .txt
+
+- Una palabra por linea, en **mayusculas**, sin tildes ni caracteres especiales.
+- Las palabras se separan por salto de linea (CR+LF).
+- Cada archivo debe tener al menos una palabra.
+
+Clasificacion:
+
+| Dificultad | Archivo | Letras por palabra | Cantidad |
+|---|---|---|---|
+| Facil | `facil.txt` | 4-5 | 20 |
+| Medio | `medio.txt` | 6-8 | 15 |
+| Dificil | `dificil.txt` | 9+ | 12 |
+
+---
+
+## 9. Resumen de procedimientos
+
+### Logica del juego (19 modulos)
+`COMPARAR_LETRA`, `VALIDAR_REPETIDA`, `DETECTAR_VICTORIA`, `DETECTAR_DERROTA`, `CALCULAR_PUNTAJE`, `PUNTAJE_DERROTA`, `ACUMULAR_PUNTAJE`, `CAMBIO_TURNO`, `IMPRIMIR_TURNO`, `REINICIAR_ESTADO`, `REINICIAR_USADAS`, `MOSTRAR_ESTADO_PRUEBA`, `LIMPIAR_PANTALLA`, `IMPRIMIR_CADENA`, `IMPRIMIR_CARACTER`, `IMPRIMIR_NUMERO`, `IMPRIMIR_PUNTAJE`, `NUEVA_LINEA`, `LEER_TECLA`.
+
+### Archivos + Aleatoriedad + PvP (7 modulos)
+`CARGAR_PALABRA`, `CARGAR_PALABRA_ARCHIVO`, `ABRIR_ARCHIVO`, `CONTAR_PALABRAS`, `EXTRAER_PALABRA`, `GENERAR_ALEATORIO`, `LEER_PALABRA_OCULTA`.

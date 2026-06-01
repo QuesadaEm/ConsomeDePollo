@@ -1,4 +1,4 @@
-# Proyecto Ahorcado - Ensamblador 8086 (EMU8086)
+# Proyecto Ahorcado - Ensamblador 8086 
 
 ## 1. Introduccion
 

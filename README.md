@@ -72,7 +72,7 @@ PAL_DEFAULT   DB 'PRUEBA'       ; Palabra de respaldo
 LEN_DEFAULT   DB 6
 ```
 
-### Interfaz y entrada (Persona 1)
+### Interfaz y entrada 
 ```
 NICK_J1         DB 11 DUP(0)   ; Nickname jugador 1 (max 10 caracteres + null)
 NICK_J2         DB 11 DUP(0)   ; Nickname jugador 2 (max 10 caracteres + null)
@@ -83,7 +83,7 @@ ACCION_ESPECIAL DB 0           ; 0=ninguna  1=rendirse  2=reset  3=salir
 
 ---
 
-## 4. Modulos de interfaz y entrada de usuario (Persona 1)
+## 4. Modulos de interfaz y entrada de usuario 
 
 ### PANTALLA_INICIAL
 Punto de entrada al inicio de la partida. Muestra la pantalla de bienvenida y solicita en orden:
@@ -173,7 +173,7 @@ Imprime `PALABRA` letra a letra segun `LONG_PALABRA`. Se usa al revelar la palab
 
 ---
 
-## 5. Modulos de logica del juego (Persona 2)
+## 5. Modulos de logica del juego 
 
 ### COMPARAR_LETRA
 Busca `LETRA_ACTUAL` en `PALABRA`. Por cada coincidencia revela esa posicion en `ESTADO`. Si no encuentra ninguna, incrementa `ERRORES`. Retorna cantidad de aciertos en AL.
@@ -212,7 +212,7 @@ Muestra "Turno del Jugador 1" o "Turno del Jugador 2" segun `TURNO`.
 
 ---
 
-## 6. Modulos de archivos y PvP (Persona 3)
+## 6. Modulos de archivos y PvP 
 
 ### CARGAR_PALABRA (punto de entrada)
 Segun `MODALIDAD`:
